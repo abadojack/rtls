@@ -1,6 +1,8 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/abadojack/rtls/config"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -13,7 +15,15 @@ func GetDB() (*gorm.DB, error) {
 		return db, nil
 	}
 
-	db, err := gorm.Open(mysql.Open(config.AppConfig.DB), &gorm.Config{})
+	dbUser := config.AppConfig.DBUser
+	dbPass := config.AppConfig.DBPassword
+	dbHost := config.AppConfig.DBHost
+	dbName := config.AppConfig.DBName
+
+	// Create the database connection string
+	dataSourceName := fmt.Sprintf("%s:%s@tcp(%s)/%s?charset=utf8&parseTime=True&loc=Local", dbUser, dbPass, dbHost, dbName)
+
+	db, err := gorm.Open(mysql.Open(dataSourceName), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}

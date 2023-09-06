@@ -2,11 +2,11 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/abadojack/rtls/config"
 	"github.com/rs/cors"
+	"github.com/sirupsen/logrus"
 )
 
 type server struct {
@@ -33,10 +33,12 @@ func RunServer() {
 
 	handler := c.Handler(*server.router)
 
+	logrus.Infoln("starting server on port ", config.AppConfig.Port)
+
 	if err := http.ListenAndServe(
 		fmt.Sprintf("%v:%v", "", config.AppConfig.Port),
 		handler,
 	); err != nil {
-		log.Fatal("Error starting server: ", err)
+		logrus.WithError(err).Fatal("Error starting server: ")
 	}
 }

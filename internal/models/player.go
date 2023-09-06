@@ -1,23 +1,34 @@
 package models
 
 import (
+	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/abadojack/rtls/internal/db"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
+// Player represents the player model
 type Player struct {
-	ID    string //  By default, GORM uses ID as primary key
-	Score int    `gorm:"index"`
-	Rank  int    `gorm:"-"`
+	ID    string `json:"id"` //  By default, GORM uses ID as primary key
+	Score int    `gorm:"index" json:"score"`
+	Rank  int    `gorm:"-" json:"rank"` // rank is not stored in db
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	CreatedAt time.Time      `json:"-"`
+	UpdatedAt time.Time      `json:"-"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// limit represents number of players saved in cache
+var limit int
+
+// last player on the leaderboard stored in redis
+var last Player
+
+// NewPlayer creates a new player to db with score
 func NewPlayer(score int) (*Player, error) {
 	db, err := db.GetDB()
 	if err != nil {
@@ -47,9 +58,10 @@ func (p *Player) Update() error {
 		return err
 	}
 
-	return db.Where("ID = ?", p.ID).Update("score", p.Score).Error
+	return db.Model(&Player{}).Where("ID = ?", p.ID).Update("score", p.Score).Error
 }
 
+// Get a player from db including there rank
 func (p *Player) Get() (*Player, error) {
 	db, err := db.GetDB()
 	if err != nil {
@@ -57,7 +69,7 @@ func (p *Player) Get() (*Player, error) {
 	}
 
 	type result struct {
-		count, score int
+		Count, Score int
 	}
 
 	var res result
@@ -76,11 +88,100 @@ func (p *Player) Get() (*Player, error) {
 		return nil, err
 	}
 
-	rank := res.count + 1
+	rank := res.Count + 1
 
 	return &Player{
 		ID:    p.ID,
-		Score: res.score,
+		Score: res.Score,
 		Rank:  rank,
 	}, nil
+}
+
+// getNPlayers return top n players from db
+func getNPlayers(n int) ([]Player, error) {
+	db, err := db.GetDB()
+	if err != nil {
+		return nil, err
+	}
+
+	var players []Player
+
+	err = db.Model(Player{}).Order("score DESC").Limit(n).Find(&players).Error
+	if err != nil {
+		return nil, err
+	}
+
+	noOfPlayers := len(players)
+
+	if noOfPlayers == 0 {
+		return nil, nil
+	}
+
+	// Calculate the rank for each player
+	rank := 1
+	prevScore := players[0].Score
+	players[0].Rank = rank
+
+	for i := 1; i < noOfPlayers; i++ {
+		if players[i].Score == prevScore {
+			players[i].Rank = rank
+		} else {
+			rank++
+			players[i].Rank = rank
+			prevScore = players[i].Score
+		}
+	}
+
+	return players, nil
+}
+
+// if player is in top n, update top n
+func (p *Player) updateCache() error {
+	if p.Score >= last.Score {
+		players, err := getNPlayers(limit)
+		if err != nil {
+			return err
+		}
+
+		logrus.Infoln("Updating redis cache")
+
+		return setLeaderboardToRedis(players)
+	}
+
+	return nil
+}
+
+// AfterCreate is a hook that runs after create
+func (p *Player) AfterCreate(tx *gorm.DB) error {
+	return p.updateCache()
+}
+
+// AfterUpdate is a hook that runs after update
+func (p *Player) AfterUpdate(tx *gorm.DB) error {
+	return p.updateCache()
+}
+
+// setLeaderboardToRedis write player leaderboard to redis
+func setLeaderboardToRedis(leaderboard []Player) error {
+	// Serialize the struct to JSON
+	jsonData, err := json.Marshal(leaderboard)
+	if err != nil {
+		return err
+	}
+
+	return db.GetRedis().HSet(context.Background(), db.LeaderboardHash, db.LeaderboardKey, jsonData).Err()
+}
+
+// loadLeaderboardToRedis reads player leaderboard from redis
+func loadLeaderboardFromRedis() ([]Player, error) {
+	var leaderboard []Player
+
+	result, _ := db.GetRedis().HGetAll(context.Background(), db.LeaderboardHash).Result()
+
+	err := json.Unmarshal([]byte(result["players"]), &leaderboard)
+	if err != nil {
+		return nil, err
+	}
+
+	return leaderboard, nil
 }

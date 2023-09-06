@@ -19,6 +19,10 @@ func NewRouter() *Router {
 
 // InitializeRoutes Initializa routes and register handlers
 func (r *Router) InitializeRoutes(cfg *config.Config) {
+	r.HandleFunc("/healthcheck", handlers.HealthCheckHandler).
+		Methods(http.MethodGet).
+		Name("healthcheck")
+
 	r.HandleFunc("/players", handlers.PostPlayersHandler).
 		Methods(http.MethodPost).
 		Name("postPlayers")
@@ -30,4 +34,8 @@ func (r *Router) InitializeRoutes(cfg *config.Config) {
 	r.HandleFunc("/players/{id}/score", handlers.PutPlayersHandler).
 		Methods(http.MethodPut).
 		Name("putPlayersScore")
+
+	r.HandleFunc("/leaderboard/top/{N}", handlers.GetLeaderBoardHandler).
+		Methods(http.MethodGet).
+		Name("leaderboardTopN")
 }
