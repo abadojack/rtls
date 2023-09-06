@@ -11,7 +11,7 @@ services:
       - redis  # Ensure the app starts after the Redis service
 
   db:
-    image: arm64v8/mysql
+    image: mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
